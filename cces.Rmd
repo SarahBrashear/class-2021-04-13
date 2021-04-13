@@ -10,10 +10,14 @@ knitr::opts_chunk$set(echo = FALSE)
 library(primer.data)
 library(tidyverse)
 library(rstanarm)
+library(tidybayes)
+
 
 # Check out the raw cces tibble, especially the faminc (family income) and
 # ideology variables.
+```
 
+```{r}
 x <- cces %>% 
   filter(year == 2019) %>% 
   select(state, gender, age, race, faminc, ideology) %>% 
@@ -30,7 +34,8 @@ x <- cces %>%
   mutate(faminc = as.integer(faminc)) %>% 
   mutate(ideology = as.integer(ideology))
 
-  
+table(cces$faminc)
+table(x$faminc)
 ```
 
 
@@ -38,13 +43,124 @@ x <- cces %>%
 
 
 ## Wisdom
+```{r}
+
+x %>%
+  ggplot(aes(x = ideology, y = faminc)) +
+  geom_jitter(alpha = 0.05) +
+  geom_smooth(formula = y ~ x,
+              method = "lm")
+
+# lower numbers of ideology are more liberal
+# higher numbers of ideology are more conservative 
+
+```
 
 
 ## Justice
+What's the form of the model (linear or logistic)?
+$y_i=\beta_0 + \beta_1x+ \varepsilon_i$
+
+This one is linear.
+
 
 
 ## Courage
 
+$ideology_i=\beta_0 + \beta_1faminc_i + \varepsilon_i$
+
+```{r}
+fit_1 <- stan_glm(data = x,
+                  formula = ideology ~ faminc,
+                  refresh = 0,
+                  seed = 111)
+
+print(fit_1, digits = 3)
+```
+
+$beta_0$ = intercept, when income is zero, estimate that ideology is 3.471 (slightly left of center)
+3.471 is the median of the posterior distribution, 95% sure the real value is between +/- .05
+
+$beta_1$ = slope, for every one unit increase in income (income bin of $10k), we would expect ideology to decrease slightly (approximately .047 more liberal)
+*** This is a CAUSAL language - if I change a person's family income, then their ideology will change. That's the manipulation. 
+
+When comparing two families that are all-else-equal, we would expect the richer family to be more liberal than the poorer family by a margin of -0.047.
+*** This is PREDICTIVE language 
+
+## Describe the relationship between ideology and family income. How does it vary by gender?
+
+```{r}
+fit_2 <- stan_glm(data = x,
+                  formula = ideology ~ faminc + gender,
+                  refresh = 0,
+                  seed = 111)
+
+print(fit_2, digits = 3)
+```
+$y_i = \beta_0 +\beta_1x_1i + \beta_2x_2i +\varepsilon_i$
+
+Parallel Slope 
+
+
+```{r}
+fit_3 <- stan_glm(data = x,
+                  formula = ideology ~ faminc + gender + (faminc * gender),
+                  refresh = 0,
+                  seed = 111)
+
+print(fit_3, digits = 3)
+```
+$y_i = \beta_0 +\beta_1x + \beta_2x +\beta_3x_+\varepsilon_i$
+$ideology_i = \beta_0 +\beta_1 faminc + \beta_2 gender +\beta_3 faminc * gender +\varepsilon_i$
+
+
+*Does your conclusion change if we "adjust" for race and age?*
+```{r}
+fit_4 <- stan_glm(data = x,
+                  formula = ideology ~ age + race + gender + faminc + (gender * faminc),
+                  refresh = 0,
+                  seed = 111)
+
+print(fit_4, digits = 3)
+```
+
+Our interaction term did not change
 
 ## Temperance
+
+Does vary by gender, controlling for race and age
+
+
+```{r}
+age <- 50 # just pick an age, 50 is near average
+race <- "White" # just pick a race, white is the largest sample group
+gender <- c("Male", "Female") # have to have both since that's the question - does it vary by income
+faminc <- c(1, 6, 12) # simplify - no one right answer, just low, medium, and high income here
+
+newobs <- expand_grid(age, race, gender, faminc)
+# expand_grid creates all the combos of these things for us
+
+
+
+pe <- posterior_epred(fit_4,
+                      newdata = newobs) %>% 
+  as_tibble() 
+```
+
+```{r}
+z <- add_fitted_draws(newobs, fit_4)
+```
+
+```{r}
+z %>%
+  ggplot(aes(x = .value, 
+             y = as.character(faminc), 
+             fill = gender)) +
+    
+    stat_slab(alpha = 0.5) +
+    labs(title = "Posterior for Ideology Varies by Income Bracket",
+         subtitle = "Age at election does not matter to longevity for female candidates . . . ?", 
+         x = "Ideology",
+         y = "Income Bracket Level")
+```
 
